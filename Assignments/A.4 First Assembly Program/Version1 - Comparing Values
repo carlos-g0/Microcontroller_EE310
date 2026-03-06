@@ -1,0 +1,83 @@
+;//--------------------------------------------------------
+;// Title: EE310 Assignment 4 
+;//--------------------------------------------------------
+;// Purpose: Compare measuredTemp and refTemp and control PORTD.
+;// Dependencies: MyConfigFile.inc, xc.inc
+;// Compiler: MPLAB X IDE v6.30, XC8 pic-as v3.10 (Simulator)
+;// Author: Carlos Gonzalez
+;// OUTPUTS: PORTD.1 (Heating), PORTD.2 (Cooling)
+;// INPUTS: TEST_REFTEMP and TEST_MEASTEMP constants in code
+;// Versions:
+;//     V1.0: 03/05/2026 – Initial comparison logic
+;//--------------------------------------------------------
+
+#include "MyConfigFile.inc"
+#include <xc.inc>
+
+TEST_REFTEMP    EQU 44
+TEST_MEASTEMP   EQU 30
+
+refTemp       EQU 0x20
+measuredTemp  EQU 0x21
+contReg       EQU 0x22
+diffReg       EQU 0x23
+
+PSECT resetVec,class=CODE,reloc=2
+ORG 0x0000
+    GOTO main
+
+PSECT code,class=CODE,reloc=2
+ORG 0x0020
+
+main:
+    MOVLW TEST_REFTEMP
+    MOVWF refTemp,0
+
+    MOVLW TEST_MEASTEMP
+    MOVWF measuredTemp,0
+
+    CLRF ANSELD,0
+    CLRF TRISD,0
+    CLRF LATD,0
+
+    MOVF refTemp,0,0
+    SUBWF measuredTemp,0,0
+    MOVWF diffReg,0
+
+    BTFSC STATUS,2
+    GOTO equalCase
+
+    BTFSC STATUS,4
+    GOTO n_is_1
+n_is_0:
+    BTFSC STATUS,3
+    GOTO lessCase
+    GOTO greaterCase
+n_is_1:
+    BTFSS STATUS,3
+    GOTO lessCase
+    GOTO greaterCase
+
+greaterCase:
+    MOVLW 0x02
+    MOVWF contReg,0
+    BSF LATD,2
+    BCF LATD,1
+    GOTO done
+
+lessCase:
+    MOVLW 0x01
+    MOVWF contReg,0
+    BSF LATD,1
+    BCF LATD,2
+    GOTO done
+
+equalCase:
+    MOVLW 0x00
+    MOVWF contReg,0
+    BCF LATD,1
+    BCF LATD,2
+
+done:
+    SLEEP
+    END
