@@ -1,15 +1,15 @@
-;//--------------------------------------------------------
-;// Title: EE310 Assignment 4 
-;//--------------------------------------------------------
-;// Purpose: Compare measuredTemp and refTemp and control PORTD.
-;// Dependencies: MyConfigFile.inc, xc.inc
-;// Compiler: MPLAB X IDE v6.30, XC8 pic-as v3.10 (Simulator)
-;// Author: Carlos Gonzalez
-;// OUTPUTS: PORTD.1 (Heating), PORTD.2 (Cooling)
-;// INPUTS: TEST_REFTEMP and TEST_MEASTEMP constants in code
-;// Versions:
-;//     V1.0: 03/05/2026 – Initial comparison logic
-;//--------------------------------------------------------
+//--------------------------------------------------------
+// Title: EE310 Assignment 4 
+//--------------------------------------------------------
+// Purpose: Compare measuredTemp and refTemp and control PORTD.
+// Dependencies: MyConfigFile.inc, xc.inc
+// Compiler: MPLAB X IDE v6.30, XC8 pic-as v3.10 (Simulator)
+// Author: Carlos Gonzalez
+// OUTPUTS: PORTD.1 (Heating), PORTD.2 (Cooling)
+// INPUTS: TEST_REFTEMP and TEST_MEASTEMP constants in code
+// Versions:
+//     V1.0: 03/05/2026 – Initial comparison logic
+//--------------------------------------------------------
 
 #include "MyConfigFile.inc"
 #include <xc.inc>
