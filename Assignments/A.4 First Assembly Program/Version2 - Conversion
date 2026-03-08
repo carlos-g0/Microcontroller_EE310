@@ -8,7 +8,7 @@
 // OUTPUTS: PORTD.1, PORTD.2 and decimal digits in registers
 // INPUTS: TEST_REFTEMP and TEST_MEASTEMP constants
 // Versions:
-//     V1.0: 03/06/2026 – Comparison logic
+//     V1.0: 03/05/2026 – Comparison logic
 //     V2.0: 03/08/2026 – Added decimal conversion
 //--------------------------------------------------------
 
