@@ -1,5 +1,5 @@
 //--------------------------------------------------------
-// Title: EE310 Assignment 4 – Version 2 (Decimal Conversion Added)
+// Title: EE310 Assignment 4 – Version 2
 //--------------------------------------------------------
 // Purpose: Adds decimal conversion using repeated subtraction.
 // Dependencies: MyConfigFile.inc, xc.inc
