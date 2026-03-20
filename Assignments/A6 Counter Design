@@ -1,0 +1,179 @@
+//--------------------------------------------------------
+// Title:      EE310 Assignment 6 - 7 Segment Counter
+//--------------------------------------------------------
+// Purpose:    This program is a hexadecimal counter
+//             (0 to F) using a 7-segment display.
+//             Switch A (RA0) increments the counter while held.
+//             Switch B (RA1) decrements the counter while held.
+//             If both switches are pressed, the counter resets to 0.
+//             If neither switch is pressed, the current value is held.
+//             The program uses a delay subroutine (CALL/RETURN)
+//             and table pointer instructions to retrieve the
+//             correct 7-segment display patterns.
+//
+// Dependencies: MyConfigFile.inc, xc.inc
+//
+// Compiler:    MPLAB X IDE v6.30, XC8 pic-as v3.10
+//
+// Author:      Carlos Gonzalez
+//
+// OUTPUTS:     
+//   RC7 -> Segment A
+//   RA2 -> Segment B
+//   RC2 -> Segment C
+//   RC3 -> Segment D
+//   RC4 -> Segment E
+//   RC5 -> Segment F
+//   RC6 -> Segment G
+//
+// INPUTS:      
+//   RA0 -> Switch A (Count Up, active LOW)
+//   RA1 -> Switch B (Count Down, active LOW)
+//
+// Versions:
+//   V1.0: 3/19/2026 - Initial setup
+//--------------------------------------------------------
+
+#include "./MyConfigFile.inc"
+#include <xc.inc>
+
+countVal    EQU 0x20
+tempVal     EQU 0x21
+
+    PSECT absdata,abs,ovrld
+    ORG     0x0000
+    GOTO    start
+
+    PSECT code,class=CODE,reloc=2
+    ORG     0x0020
+
+start:
+    ; ---------- PORTC outputs ----------
+    BANKSEL ANSELC
+    CLRF    ANSELC,1
+
+    BANKSEL LATC
+    CLRF    LATC,1
+
+    BANKSEL TRISC
+    CLRF    TRISC,1
+
+    ; ---------- PORTA ----------
+    BANKSEL ANSELA
+    CLRF    ANSELA,1
+
+    BANKSEL LATA
+    CLRF    LATA,1
+
+    BANKSEL TRISA
+    ; RA0 input, RA1 input, RA2 output
+    BSF     TRISA,0,1
+    BSF     TRISA,1,1
+    BCF     TRISA,2,1
+
+    ; internal weak pull-ups on RA0 and RA1
+    BANKSEL WPUA
+    BSF     WPUA,0,1
+    BSF     WPUA,1,1
+    BCF     WPUA,2,1
+
+    ; start at 0
+    CLRF    countVal,0
+    RCALL   show_count
+
+main_loop:
+    BANKSEL PORTA
+
+    ; both pressed? (both LOW)
+    BTFSC   PORTA,0,1
+    GOTO    check_B_only
+
+    ; RA0 is LOW here
+    BTFSC   PORTA,1,1
+    GOTO    do_count_up
+
+    ; both LOW -> reset to 0
+    CLRF    countVal,0
+    RCALL   show_count
+    RCALL   delay_step
+    GOTO    main_loop
+
+check_B_only:
+    BTFSC   PORTA,1,1
+    GOTO    hold_value
+    GOTO    do_count_down
+
+do_count_up:
+    INCF    countVal,1,0
+    MOVLW   0x10
+    CPFSEQ  countVal,0
+    GOTO    up_done
+    CLRF    countVal,0
+
+up_done:
+    RCALL   show_count
+    RCALL   delay_step
+    GOTO    main_loop
+
+do_count_down:
+    MOVF    countVal,0,0
+    BNZ     dec_normal
+
+    ; if at 0, wrap to F
+    MOVLW   0x0F
+    MOVWF   countVal,0
+    GOTO    down_done
+
+dec_normal:
+    DECF    countVal,1,0
+
+down_done:
+    RCALL   show_count
+    RCALL   delay_step
+    GOTO    main_loop
+
+hold_value:
+    GOTO    main_loop
+
+;--------------------------------------------------------
+; show_count
+; Uses table pointers to fetch the exact LATC and LATA
+; output patterns for the current count.
+;--------------------------------------------------------
+show_count:
+    ; ----- Fetch LATC pattern -----
+    MOVLW   low segTableC
+    MOVWF   TBLPTRL,1
+    MOVLW   high segTableC
+    MOVWF   TBLPTRH,1
+    MOVLW   low highword segTableC
+    MOVWF   TBLPTRU,1
+
+    MOVF    countVal,0,0
+    ADDWF   TBLPTRL,1,1
+
+    TBLRD*
+    MOVFF   TABLAT, LATC
+
+    ; ----- Fetch LATA pattern (only RA2 used) -----
+    MOVLW   low segTableA
+    MOVWF   TBLPTRL,1
+    MOVLW   high segTableA
+    MOVWF   TBLPTRH,1
+    MOVLW   low highword segTableA
+    MOVWF   TBLPTRU,1
+
+    MOVF    countVal,0,0
+    ADDWF   TBLPTRL,1,1
+
+    TBLRD*
+    MOVFF   TABLAT, tempVal
+
+    ; preserve RA0 and RA1 inputs, update only RA2 output
+    BANKSEL LATA
+    MOVF    LATA,0,1
+    ANDLW   0x03            ; keep bits 0 and 1, clear others
+    IORWF   tempVal,0,0
+    MOVWF   LATA,1
+
+    RETURN
