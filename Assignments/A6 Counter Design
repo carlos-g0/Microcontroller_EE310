@@ -177,3 +177,23 @@ show_count:
     MOVWF   LATA,1
 
     RETURN
+
+
+;-------------------------------------------------------
+; delay_step
+; Adjust later if needed
+;--------------------------------------------------------
+delay_step:
+    MOVLW   0xFF
+    MOVWF   0x22,0
+outer_loop:
+    MOVLW   0xFF
+    MOVWF   0x23,0
+inner_loop:
+    NOP
+    NOP
+    DECF    0x23,1,0
+    BNZ     inner_loop
+    DECF    0x22,1,0
+    BNZ     outer_loop
+    RETURN
