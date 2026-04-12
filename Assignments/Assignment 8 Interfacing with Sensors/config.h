@@ -1,15 +1,22 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+// For __delay_ms() and __delay_us() to work correctly.
 #define _XTAL_FREQ 1000000UL
 
-#pragma config FEXTOSC = OFF
+// ---------------------------
+// Configuration Bits (PIC18F47K42)
+// ---------------------------
+
+// Clock source settings
+#pragma config FEXTOSC = OFF         
 #pragma config RSTOSC  = HFINTOSC_1MHZ
 #pragma config CLKOUTEN = OFF
-#pragma config PR1WAY = ON
-#pragma config CSWEN = ON
-#pragma config FCMEN = ON
+#pragma config PR1WAY = ON         
+#pragma config CSWEN = ON          
+#pragma config FCMEN = ON          
 
+// Reset / startup settings
 #pragma config MCLRE = EXTMCLR
 #pragma config PWRTS = PWRT_OFF
 #pragma config MVECEN = ON
@@ -17,6 +24,7 @@
 #pragma config LPBOREN = OFF
 #pragma config BOREN = SBORDIS
 
+// Other system settings
 #pragma config BORV = VBOR_2P45
 #pragma config ZCD = OFF
 #pragma config PPS1WAY = ON
@@ -24,11 +32,13 @@
 #pragma config DEBUG = OFF
 #pragma config XINST = OFF
 
+// Watchdog timer settings
 #pragma config WDTCPS = WDTCPS_31
 #pragma config WDTE = OFF
 #pragma config WDTCWS = WDTCWS_7
-#pragma config WDTCCS = SC
+#pragma config WDTCCS = SC 
 
+// Code protection / boot settings
 #pragma config BBSIZE = BBSIZE_512
 #pragma config BBEN = OFF
 #pragma config SAFEN = OFF
