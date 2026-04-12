@@ -1,10 +1,10 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// PIC18F46K42 Configuration Bits
+#define _XTAL_FREQ 1000000UL
 
 #pragma config FEXTOSC = OFF
-#pragma config RSTOSC = HFINTOSC_1MHZ
+#pragma config RSTOSC  = HFINTOSC_1MHZ
 #pragma config CLKOUTEN = OFF
 #pragma config PR1WAY = ON
 #pragma config CSWEN = ON
