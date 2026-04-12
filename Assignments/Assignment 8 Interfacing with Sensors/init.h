@@ -2,46 +2,78 @@
 #define INIT_H
 
 #include <xc.h>
+#include <stdint.h>
 
-#define _XTAL_FREQ 1000000
-
-void init_adc(void);
-
-void init_system(void)
+static inline void init_adc(void)
 {
-    // ---------- Disable Analog Where Not Needed ----------
-    ANSELA = 0x03;   // RA0 & RA1 analog
+    ADREFbits.ADPREF = 0b00;  // Vref+ = VDD
+    ADREFbits.ADNREF = 0;     // Vref- = VSS
+
+    ADCLK = 0x3F;
+    ADACQ = 0x1F;
+
+    ADCON0bits.FM = 1;
+    ADCON0bits.ADON = 1;
+}
+
+static inline void init_system(void)
+{
+    // Analog settings:
+    // RA0/RA1 analog for PR1/PR2
+    ANSELA = 0x03;
+
+    // Everything else digital
     ANSELB = 0x00;
     ANSELC = 0x00;
     ANSELD = 0x00;
+    ANSELE = 0x00;      // <-- important: make RE pins digital
 
-    // ---------- Clear Output Latches FIRST ----------
-    LATC = 0x00;     // RC1, RC2, RC3 = LOW
-    LATD = 0x00;     // 7-seg OFF
+    // Clear outputs first
+    LATC = 0x00;
+    LATD = 0x00;
+    LATE = 0x00;
 
-    // ---------- Set Pin Directions ----------
-    TRISA = 0x03;    // RA0 & RA1 inputs
-    TRISB = 0x03;    // RB0 confirm, RB1 interrupt
-    TRISC = 0x00;    // RC1, RC2, RC3 outputs
-    TRISD = 0x00;    // 7-segment outputs
+    // Directions
+    TRISAbits.TRISA0 = 1;  // PR1
+    TRISAbits.TRISA1 = 1;  // PR2
 
-    // ---------- Enable Internal Pull-ups ----------
-    WPUBbits.WPUB0 = 1;   // Confirm button
-    WPUBbits.WPUB1 = 1;   // Emergency button
+    TRISBbits.TRISB0 = 1;  // confirm
+    TRISBbits.TRISB1 = 1;  // emergency
 
-    // ---------- Interrupt-On-Change Setup for RB1 ----------
-    IOCBNbits.IOCBN1 = 1; // Falling edge detect on RB1
-    PIE0bits.IOCIE = 1;   // Enable IOC interrupt
-    INTCON0bits.GIE = 1;  // Global interrupt enable
+    TRISCbits.TRISC2 = 0;  // buzzer
+    TRISCbits.TRISC3 = 0;  // relay
 
-    // ---------- Initialize ADC ----------
+    TRISDbits.TRISD0 = 0;
+    TRISDbits.TRISD1 = 0;
+    TRISDbits.TRISD2 = 0;
+    TRISDbits.TRISD3 = 0;
+    TRISDbits.TRISD4 = 0;
+    TRISDbits.TRISD5 = 0;
+    TRISDbits.TRISD6 = 0;
+    TRISDbits.TRISD7 = 0;
+
+    TRISEbits.TRISE1 = 0;  // LED2 now on RE1
+
+    // Ensure outputs OFF
+    LATCbits.LATC2 = 0;
+    LATCbits.LATC3 = 0;
+    LATEbits.LATE1 = 0;
+
+    // Pull-ups for buttons
+    WPUBbits.WPUB0 = 1;    // RB0 pull-up
+    WPUBbits.WPUB1 = 1;    // RB1 pull-up
+
+    // IOC on RB1 falling edge
+    IOCBFbits.IOCBF1 = 0;
+    PIR0bits.IOCIF = 0;
+
+    IOCBNbits.IOCBN1 = 1;
+    IOCBPbits.IOCBP1 = 0;
+
+    PIE0bits.IOCIE = 1;
+    INTCON0bits.GIE = 1;
+
     init_adc();
-}
-
-void init_adc(void)
-{
-    ADCON0bits.ADON = 1;   // Enable ADC
-    ADCON0bits.FM = 1;     // Right justified
 }
 
 #endif
