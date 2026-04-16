@@ -1,4 +1,4 @@
-#ifndef FUNCTIONS_
+#ifndef FUNCTIONS_H
 #define FUNCTIONS_H
 
 #include <xc.h>
