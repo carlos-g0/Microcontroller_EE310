@@ -1,4 +1,4 @@
-//------------------------------
+//-----------------------------
 // Title:    Assignment 8 - Lock Box
 //------------------------------
 // Purpose:  Enter a 2-digit secret code using two photoresistors.
