@@ -1,4 +1,4 @@
-#ifndef CONFIG_H
+#ifndef CONFIG_
 #define CONFIG_H
 
 // For __delay_ms() and __delay_us() to work correctly.
