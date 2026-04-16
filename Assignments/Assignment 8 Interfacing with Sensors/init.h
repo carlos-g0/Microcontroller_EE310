@@ -1,4 +1,4 @@
-#ifndef INIT_H
+#ifndef INIT_
 #define INIT_H
 
 #include <xc.h>
