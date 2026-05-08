@@ -11,8 +11,10 @@
 #pragma config CSWEN    = ON
 #pragma config FCMEN    = ON
 #pragma config MCLRE    = EXTMCLR
+
 #pragma config WDTE     = OFF
 #pragma config WDTCCS   = SC
+
 #pragma config BOREN    = ON
 #pragma config LPBOREN  = OFF
 #pragma config STVREN   = ON
@@ -21,7 +23,10 @@
 #pragma config DEBUG    = OFF
 #pragma config CP       = OFF
 
-#define _XTAL_FREQ 4000000UL
+// IMPORTANT for multiple irq() ISRs (Timer0 + IOC)
+#pragma config MVECEN   = ON
+
+#define _XTAL_FREQ 4000000UL   // run HFINTOSC at 4 MHz
 
 // =====================================================
 // PIN MAP (YOUR WIRING)
@@ -41,26 +46,26 @@
 #define LCD_D6_TRIS  TRISCbits.TRISC6
 #define LCD_D7_TRIS  TRISDbits.TRISD4
 
-// Start button (active LOW)
+// Start button (active LOW) on RD2
 #define START_TRIS   TRISDbits.TRISD2
 #define START_PORT   PORTDbits.RD2
 
-// Reset/Interrupt button on RB1 (active LOW)
+// Reset button (active LOW) on RB1 (IOC)
 #define RESET_TRIS   TRISBbits.TRISB1
 #define RESET_PORT   PORTBbits.RB1
 
-// Buzzer (active)
+// Buzzer on RD0
 #define BUZZ_TRIS    TRISDbits.TRISD0
 #define BUZZ_LAT     LATDbits.LATD0
 
-// LEDs
+// READY LED on RB3, RESET/INT LED on RB0
 #define READY_TRIS   TRISBbits.TRISB3
 #define READY_LAT    LATBbits.LATB3
 
 #define INTLED_TRIS  TRISBbits.TRISB0
 #define INTLED_LAT   LATBbits.LATB0
 
-// 5-light sequence LEDs (left -> right)
+// 5-light sequence LEDs (left -> right): RA2, RA1, RB5, RB4, RC7
 #define L1_TRIS      TRISAbits.TRISA2
 #define L1_LAT       LATAbits.LATA2
 
@@ -76,15 +81,28 @@
 #define L5_TRIS      TRISCbits.TRISC7
 #define L5_LAT       LATCbits.LATC7
 
-// Servo (software pulses on RA0)
+// Servo signal on RA0
 #define SERVO_TRIS   TRISAbits.TRISA0
 #define SERVO_LAT    LATAbits.LATA0
 
 // =====================================================
-// GLOBALS (set by ISR)
+// SERVO PULSE RANGE
 // =====================================================
-volatile uint8_t reset_request = 0;
-volatile uint8_t resetting     = 0;
+#define SERVO_US_ZERO  390     // slow end / "zero" 
+#define SERVO_US_MAX   2300    // fast end / max
+
+// =====================================================
+// GLOBALS
+// =====================================================
+volatile uint8_t  reset_request = 0;
+volatile uint8_t  resetting     = 0;
+
+// Timer0 servo driver variables
+volatile uint16_t servo_pulse_us = SERVO_US_ZERO;  // 390..2300
+volatile uint8_t  servo_phase_hi = 0;              // 0->next HIGH, 1->next LOW
+
+// PRNG
+static uint16_t prng_state = 0xACE1;
 
 // =====================================================
 // HELPERS
@@ -162,7 +180,8 @@ static void lcd_init(void)
 }
 
 // =====================================================
-// TIMER1 free-run at 1us ticks (FOSC/4 when FOSC=4MHz)
+// TIMER1 free-run (reaction measurement + entropy)
+// FOSC=4MHz => FOSC/4 = 1MHz => 1 tick = 1 us
 // =====================================================
 static void tmr1_init_1us_freerun(void)
 {
@@ -171,34 +190,82 @@ static void tmr1_init_1us_freerun(void)
     T1CONbits.CKPS = 0b00;     // 1:1
     TMR1H = 0;
     TMR1L = 0;
-    T1CONbits.ON = 1;          // keep running always
+    T1CONbits.ON = 1;
 }
-static void tmr1_zero(void)
-{
-    TMR1H=0; TMR1L=0;
-}
+static void tmr1_zero(void){ TMR1H=0; TMR1L=0; }
 
 // =====================================================
-// Randomness (LFSR) + Timer0 entropy
+// TIMER0 SERVO DRIVER (16-bit, 1us ticks)
+// ISR alternates HIGH for pulse_us and LOW for (20000 - pulse_us)
 // =====================================================
-static void tmr0_freerun_init(void)
+static void tmr0_reload_us(uint16_t us)
 {
+    uint16_t preload = (uint16_t)(65536u - us);
+    TMR0H = (uint8_t)(preload >> 8);
+    TMR0L = (uint8_t)(preload & 0xFF);
+}
+
+static void servo_timer0_init(void)
+{
+    // Timer0: 16-bit, FOSC/4, prescaler 1:1
     T0CON0bits.EN = 0;
-    T0CON1bits.CS    = 0b010;   // FOSC/4
-    T0CON1bits.ASYNC = 1;
-    T0CON1bits.CKPS  = 0b1000;  // 1:256
-    T0CON0bits.MD16  = 0;       // 8-bit
-    TMR0H = 0;
-    TMR0L = 0;
+    T0CON0bits.MD16 = 1;      // 16-bit
+    T0CON0bits.OUTPS = 0;     // 1:1 postscaler
+
+    T0CON1bits.CS = 0b010;    // FOSC/4
+    T0CON1bits.CKPS = 0b0000; // prescaler 1:1
+    T0CON1bits.ASYNC = 0;     // synchronized
+
+    SERVO_LAT = 0;
+    servo_phase_hi = 0;
+
+    // first interval before first rising edge
+    tmr0_reload_us(1000);
+
+    PIR3bits.TMR0IF = 0;
+    PIE3bits.TMR0IE = 1;
+
     T0CON0bits.EN = 1;
 }
 
-static uint16_t prng_state = 0xACE1;
+void __interrupt(irq(IRQ_TMR0), base(0x4008)) TMR0_ISR(void)
+{
+    PIR3bits.TMR0IF = 0;
 
+    uint16_t pulse = servo_pulse_us;
+    if (pulse < SERVO_US_ZERO) pulse = SERVO_US_ZERO;
+    if (pulse > SERVO_US_MAX)  pulse = SERVO_US_MAX;
+
+    // Stop timer while reloading (more reliable on K42)
+    T0CON0bits.EN = 0;
+
+    if (servo_phase_hi == 0)
+    {
+        SERVO_LAT = 1;
+        servo_phase_hi = 1;
+        tmr0_reload_us(pulse);
+    }
+    else
+    {
+        SERVO_LAT = 0;
+        servo_phase_hi = 0;
+        uint16_t low_us = (pulse < 20000u) ? (uint16_t)(20000u - pulse) : 1000u;
+        tmr0_reload_us(low_us);
+    }
+
+    T0CON0bits.EN = 1;
+}
+
+// =====================================================
+// PRNG for random lights-out delay (seed from timers)
+// =====================================================
 static void prng_seed_from_timers(void)
 {
-    uint16_t seed = ((uint16_t)TMR0L << 8) ^ (uint16_t)TMR1L ^ ((uint16_t)TMR1H << 4);
-    if (seed == 0) seed = 0xBEEF;
+    uint16_t t1 = ((uint16_t)TMR1H << 8) | TMR1L;
+    uint16_t t0 = ((uint16_t)TMR0H << 8) | TMR0L;
+    uint16_t seed = (uint16_t)(t1 ^ (t0 << 1) ^ 0xBEEF);
+
+    if (seed == 0) seed = 0xACE1;
     prng_state ^= seed;
     if (prng_state == 0) prng_state = 0xACE1;
 }
@@ -214,63 +281,6 @@ static uint16_t rand_range_ms(uint16_t min_ms, uint16_t max_ms)
 {
     uint16_t span = (uint16_t)(max_ms - min_ms + 1u);
     return (uint16_t)(min_ms + (prng_next() % span));
-}
-
-// =====================================================
-// SERVO (software pulses on RA0)
-// =====================================================
-#define SERVO_US_ZERO            2270
-#define SERVO_US_NEEDS_PRACTICE  2110
-#define SERVO_US_SLOW            1720
-#define SERVO_US_AVERAGE         1210
-#define SERVO_US_FAST            740
-#define SERVO_US_SUPERHUMAN      460
-
-static void delay_us_var(uint16_t us)
-{
-    uint16_t start = ((uint16_t)TMR1H << 8) | TMR1L;
-    while ((uint16_t)((((uint16_t)TMR1H << 8) | TMR1L) - start) < us) { ; }
-}
-static void servo_frame_us(uint16_t pulse_us)
-{
-    SERVO_LAT = 1;
-    delay_us_var(pulse_us);
-    SERVO_LAT = 0;
-
-    if (pulse_us < 20000u) delay_us_var((uint16_t)(20000u - pulse_us));
-    else                   delay_us_var(20000u);
-}
-
-// Normal “hold position” (can abort if reset_request becomes 1)
-static void servo_set_us_ms(uint16_t pulse_us, uint16_t duration_ms)
-{
-    uint16_t frames = duration_ms / 20;
-    if (frames < 10) frames = 10;
-
-    for (uint16_t i = 0; i < frames; i++)
-    {
-        if (reset_request) break;
-        servo_frame_us(pulse_us);
-    }
-}
-
-// Startup-safe “hold position” (NEVER aborts)
-static void servo_set_us_ms_blocking(uint16_t pulse_us, uint16_t duration_ms)
-{
-    uint16_t frames = duration_ms / 20;
-    if (frames < 10) frames = 10;
-
-    for (uint16_t i = 0; i < frames; i++)
-        servo_frame_us(pulse_us);
-}
-
-static uint16_t servo_us_for_reaction(uint32_t t_ms)
-{
-    if (t_ms <=  99) return SERVO_US_SUPERHUMAN;
-    if (t_ms <= 199) return SERVO_US_FAST;
-    if (t_ms <= 299) return SERVO_US_AVERAGE;
-    if (t_ms <= 399) return SERVO_US_SLOW;
-    return SERVO_US_NEEDS_PRACTICE;
 }
 
 // =====================================================
@@ -290,11 +300,10 @@ static void ioc_init_rb1_reset(void)
     IOCBFbits.IOCBF1 = 0;
     PIR0bits.IOCIF = 0;
 
-    IOCBNbits.IOCBN1 = 1;
+    IOCBNbits.IOCBN1 = 1;   // falling edge
     IOCBPbits.IOCBP1 = 0;
 
     PIE0bits.IOCIE = 1;
-    INTCON0bits.GIE = 1;
 }
 
 void __interrupt(irq(IRQ_IOC), base(0x4008)) IOC_ISR(void)
@@ -308,6 +317,12 @@ void __interrupt(irq(IRQ_IOC), base(0x4008)) IOC_ISR(void)
         }
         PIR0bits.IOCIF = 0;
     }
+}
+
+// Default ISR so accidental flags don’t reset the chip
+void __interrupt(irq(default), base(0x4008)) DEFAULT_ISR(void)
+{
+    // leave empty
 }
 
 // =====================================================
@@ -348,6 +363,7 @@ static void false_start_buzz(void)
 }
 
 // wait ms while checking reset + false start
+// return: 0 ok, 1 reset, 2 false start
 static uint8_t wait_ms_check(uint16_t ms)
 {
     while (ms--)
@@ -376,6 +392,7 @@ static uint8_t run_f1_sequence(void)
     L4_LAT=1; { uint8_t r=wait_ms_check(1000); if(r) return r; }
     L5_LAT=1; { uint8_t r=wait_ms_check(1000); if(r) return r; }
 
+    prng_seed_from_timers();
     uint16_t lights_out_delay = rand_range_ms(300, 3000);
     { uint8_t r=wait_ms_check(lights_out_delay); if(r) return r; }
 
@@ -420,7 +437,35 @@ static uint32_t measure_reaction_ms(uint16_t timeout_ms)
     }
 }
 
-// Reset: blink RB0 for 1.5 seconds, servo to ZERO (strong), reseed random
+// 5-point calibrated piecewise-linear mapping
+static uint16_t servo_us_for_reaction_5pt(uint32_t t_ms)
+{
+    if (t_ms > 500) t_ms = 500;
+
+    // ms -> us (your calibration)
+    const uint16_t T[5] = { 0,   125, 250, 375, 500 };
+    const uint16_t U[5] = { 2300,1710,1180,700, 390 };
+
+    uint8_t i = 0;
+    while (i < 4 && t_ms > T[i+1]) i++;
+
+    uint32_t t0 = T[i], t1 = T[i+1];
+    uint32_t u0 = U[i], u1 = U[i+1];
+
+    uint32_t dt = (t1 - t0);
+    uint32_t num = (t_ms - t0) * ( (u0 >= u1) ? (u0 - u1) : (u1 - u0) );
+
+    uint32_t u;
+    if (u0 >= u1) u = u0 - (num / dt);
+    else          u = u0 + (num / dt);
+
+    if (u < SERVO_US_ZERO) u = SERVO_US_ZERO;
+    if (u > SERVO_US_MAX)  u = SERVO_US_MAX;
+
+    return (uint16_t)u;
+}
+
+// Reset: blink RB0 for 1.5s, command servo to ZERO
 static void do_reset_sequence(void)
 {
     resetting = 1;
@@ -432,8 +477,7 @@ static void do_reset_sequence(void)
 
     prng_seed_from_timers();
 
-    // Strong reset-to-zero drive: 2.0s of pulses
-    servo_set_us_ms(SERVO_US_ZERO, 2000);
+    servo_pulse_us = SERVO_US_ZERO;   // command to zero
 
     char l1[17], l2[17];
     make_line16(l1, "Resetting...");
@@ -441,7 +485,7 @@ static void do_reset_sequence(void)
     lcd_goto(1,0); lcd_print_16(l1);
     lcd_goto(2,0); lcd_print_16(l2);
 
-    // 1.5s blink: 15 * 100ms = 1.5s
+    // 1.5 seconds blink
     for (uint8_t k=0; k<15; k++)
     {
         INTLED_LAT ^= 1;
@@ -461,11 +505,14 @@ typedef enum { ST_READY=0, ST_SEQUENCE, ST_WAIT_REACTION, ST_WAIT_RESET } state_
 
 void main(void)
 {
+    // 4 MHz HFINTOSC
     OSCCON1 = 0x60;
     OSCFRQ  = 0x02;
 
+    // all digital
     ANSELA=0; ANSELB=0; ANSELC=0; ANSELD=0;
 
+    // outputs
     READY_TRIS=0; READY_LAT=0;
     INTLED_TRIS=0; INTLED_LAT=0;
     BUZZ_TRIS=0; BUZZ_LAT=0;
@@ -473,29 +520,32 @@ void main(void)
     L1_TRIS=0; L2_TRIS=0; L3_TRIS=0; L4_TRIS=0; L5_TRIS=0;
     all_seq_leds_off();
 
+    // servo
     SERVO_TRIS=0; SERVO_LAT=0;
 
+    // inputs + pullups
     START_TRIS=1;
     WPUDbits.WPUD2 = 1;
 
+    // init LCD + timers
     lcd_init();
     tmr1_init_1us_freerun();
-    tmr0_freerun_init();
-    prng_seed_from_timers();
 
-    // ============================
-    // IMPORTANT FIX:
-    // Move servo to ZERO BEFORE enabling IOC (prevents boot-time IOC from aborting move)
-    // ============================
-    servo_set_us_ms_blocking(SERVO_US_ZERO, 2000);
-
-    // Now enable reset interrupt (IOC on RB1)
+    // init IOC + servo timer
+    servo_pulse_us = SERVO_US_ZERO;
+    servo_timer0_init();
     ioc_init_rb1_reset();
 
-    // Clear any “power-up” IOC flags (just in case)
+    // clear any startup IOC flags
     reset_request = 0;
     IOCBFbits.IOCBF1 = 0;
     PIR0bits.IOCIF = 0;
+
+    // global interrupts ON
+    INTCON0bits.GIE = 1;
+
+    // let servo reach zero
+    __delay_ms(1500);
 
     state_t st = ST_READY;
     show_ready();
@@ -554,7 +604,7 @@ void main(void)
                 lcd_goto(1,0); lcd_print_16(l1);
                 lcd_goto(2,0); lcd_print_16(l2);
 
-                servo_set_us_ms(SERVO_US_NEEDS_PRACTICE, 1500);
+                servo_pulse_us = SERVO_US_ZERO;  // too slow -> zero end
                 st = ST_WAIT_RESET;
             }
             else
@@ -566,7 +616,7 @@ void main(void)
                 lcd_goto(1,0); lcd_print_16(l1);
                 lcd_goto(2,0); lcd_print_16(l2);
 
-                servo_set_us_ms(servo_us_for_reaction(t_ms), 1500);
+                servo_pulse_us = servo_us_for_reaction_5pt(t_ms);
                 st = ST_WAIT_RESET;
             }
         }
