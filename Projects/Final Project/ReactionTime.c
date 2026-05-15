@@ -1,3 +1,49 @@
+//------------------------------
+// Title: Final Project - Closed Loop Reaction Time Gauge
+//------------------------------
+// Purpose:  Measure a user’s reaction time using a timed LED start sequence,
+//           display the result on a 16x2 LCD, and move a servo driven gauge
+//           pointer to the corresponding position. The final system is designed
+//           as a closed-loop feedback system using ADC based position sensing
+//           to improve pointer accuracy and repeatability.
+// Dependencies: XC8 libraries
+// Compiler/IDE: MPLAB X IDE + XC8
+// Authors:   Carlos Gonzalez, Geovani Palomecnicolas
+// Date:     4/24/2026
+// Inputs:
+//   RD2        - Start/Reaction pushbutton (active LOW)
+//   RB1        - Reset pushbutton (active LOW, IOC interrupt)
+//   ANx        - Potentiometer feedback signal for ADC position sensing
+// Outputs:
+//   RC2        - LCD RS
+//   RC3        - LCD E
+//   RC4        - LCD D4
+//   RC5        - LCD D5
+//   RC6        - LCD D6
+//   RD4        - LCD D7
+//   RD0        - Buzzer
+//   RB3        - Ready LED
+//   RB0        - Reset/Interrupt LED
+//   RA2        - Sequence LED 1
+//   RA1        - Sequence LED 2
+//   RB5        - Sequence LED 3
+//   RB4        - Sequence LED 4
+//   RC7        - Sequence LED 5
+//   RA0        - Servo control output
+// Features:
+//   - F1 style LED countdown/start sequence
+//   - Randomized lights-out delay
+//   - Timer based reaction time measurement
+//   - LCD result display
+//   - Servo gauge output using Timer0 pulse generation
+//   - Reset button interrupt handling
+//   - ADC based feedback for closed-loop pointer positioning
+// Versions:
+//   v1.0 - LED sequence, reaction timing, LCD output working
+//   v2.0 - Servo gauge mapping and reset behavior added
+//   v3.0 - Closed-loop ADC feedback added for pointer correction
+//------------------------------
+
 #include <xc.h>
 #include <stdint.h>
 #include <stdio.h>
